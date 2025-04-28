@@ -3,7 +3,7 @@ import time
 from ultralytics import YOLO
 
 # Load the YOLOv8 model
-model = YOLO(r"C:\Users\SONIA\Desktop\github\model\best.pt")  # Update with the correct path to your weights
+model = YOLO(r"C:\Users\amir\Desktop\github\model\best.pt")  # Update with the correct path to your weights
 
 # Open the webcam
 cap = cv2.VideoCapture(0)
