@@ -1,0 +1,107 @@
+import cv2
+import time
+import json
+import numpy as np
+import threading
+from pymavlink import mavutil
+from ultralytics import YOLO
+
+# Load the YOLOv8 model
+model = YOLO(r'C:\Users\SONIA\Desktop\model\best.pt')  # Update with correct path
+
+def send_command_long(master, command, param1, param2, param3, param4, param5, param6, param7):
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        command,
+        0,
+        param1, param2, param3, param4, param5, param6, param7
+    )
+
+def waypoint_mission():
+    master = mavutil.mavlink_connection('tcp:127.0.0.1:14550')
+    master.wait_heartbeat()
+    print("Connected to vehicle for waypoint mission.")
+    
+    with open("locwaypoints.txt", "r") as file:
+        waypoints = json.load(file)
+    
+    for i, waypoint in enumerate(waypoints):
+        lat, lon, alt = waypoint['latitude'], waypoint['longitude'], 10
+        master.mav.mission_item_send(
+            master.target_system,
+            master.target_component,
+            i,
+            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+            0, 1, 0, 0, 0, 0,
+            lat, lon, alt
+        )
+        print(f"Waypoint {i} sent: lat={lat}, lon={lon}, alt={alt}")
+        time.sleep(1)
+    master.close()
+
+def zigzag_surveillance():
+    master = mavutil.mavlink_connection('tcp:127.0.0.1:14550')
+    master.wait_heartbeat()
+    print("Connected to vehicle for zigzag surveillance.")
+    
+    with open("coordinates.txt", "r") as file:
+        coordinates = json.load(file)
+    
+    boundary_lat = [point['latitude'] for point in coordinates]
+    boundary_long = [point['longitude'] for point in coordinates]
+    lat_min, lat_max = min(boundary_lat), max(boundary_lat)
+    long_min, long_max = min(boundary_long), max(boundary_long)
+    
+    num_lines = 10
+    lat_points = np.linspace(lat_min, lat_max, num_lines)
+    
+    for i, lat in enumerate(lat_points):
+        lon = long_min if i % 2 == 0 else long_max
+        send_command_long(master, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, lat, lon, 10)
+        print(f"Zigzag Waypoint {i} sent: lat={lat}, lon={lon}")
+        time.sleep(1)
+    master.close()
+
+def ml_detection():
+    print("Starting ML detection...")
+    cap = cv2.VideoCapture(0)
+    
+    while True:
+        start_time = time.time()
+        
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        results = model(frame)
+        annotated_frame = results[0].plot()
+        
+        fps = 1 / (time.time() - start_time)
+        cv2.putText(annotated_frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+        
+        cv2.imshow("YOLOv8 Inference", annotated_frame)
+        print(f"FPS: {fps:.2f}")
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+    print("ML detection completed.")
+
+waypoint_thread = threading.Thread(target=waypoint_mission)
+zigzag_thread = threading.Thread(target=zigzag_surveillance)
+ml_thread = threading.Thread(target=ml_detection)
+
+waypoint_thread.start()
+waypoint_thread.join()
+
+zigzag_thread.start()
+ml_thread.start()
+
+zigzag_thread.join()
+ml_thread.join()
+
+print("All tasks completed successfully.")
